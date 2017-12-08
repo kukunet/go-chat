@@ -16,7 +16,7 @@ type Hub struct {
 	unregister chan *Client
 
 	// Uid from clients.
-	uidclients map[string]*Client
+	uuids map[string]string
 }
 
 func newHub() *Hub {
@@ -25,6 +25,7 @@ func newHub() *Hub {
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		clients:    make(map[*Client]bool),
+		uuids:      make(map[string]string),
 	}
 }
 
@@ -38,6 +39,7 @@ func (h *Hub) run() {
 		case client := <-h.unregister:
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
+				delete(h.uuids, client.uUID)
 				close(client.send)
 			}
 			//当有人退出，把退出的相关UUID发送给前台 暂时把它当消息写到通道就行，然后让前台去解析

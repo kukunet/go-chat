@@ -152,11 +152,12 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	//分配UUID
 	uid := uuid.NewV4().String()
 	client.uUID = uid
+	hub.uuids[client.uUID] = uid
 
 	//实验阶段每次有人进入则把所有用户UUID发送到客户端
 	var msg Msg
-	for num := range hub.clients {
-		msg.Uids = append(msg.Uids, num.uUID)
+	for num := range hub.uuids {
+		msg.Uids = append(msg.Uids, num)
 	}
 	msg.Code = 200
 	msg.Rtype = 2
