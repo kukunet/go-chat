@@ -13,10 +13,10 @@ import (
 
 const (
 	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
+	writeWait = 3 * time.Second
 
 	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
+	pongWait = 3 * time.Second
 
 	// Send pings to peer with this period. Must be less than pongWait.
 	pingPeriod = (pongWait * 9) / 10
@@ -44,6 +44,9 @@ type Client struct {
 
 	// Buffered channel of outbound messages.
 	send chan []byte
+
+	// uuid
+	uUID string
 }
 
 // Msg 消息体
@@ -148,12 +151,12 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 	//分配UUID
 	uid := uuid.NewV4().String()
-	client.hub.uidclients[uid] = client
+	client.uUID = uid
 
 	//实验阶段每次有人进入则把所有用户UUID发送到客户端
 	var msg Msg
-	for num, _ := range client.hub.uidclients {
-		msg.Uids = append(msg.Uids, num)
+	for num := range hub.clients {
+		msg.Uids = append(msg.Uids, num.uUID)
 	}
 	msg.Code = 200
 	msg.Rtype = 2

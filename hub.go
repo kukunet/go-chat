@@ -25,7 +25,6 @@ func newHub() *Hub {
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		clients:    make(map[*Client]bool),
-		uidclients: make(map[string]*Client),
 	}
 }
 
