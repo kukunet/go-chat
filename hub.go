@@ -1,31 +1,31 @@
 package main
 
-// hub maintains the set of active clients and broadcasts messages to the
-// clients.
+import "encoding/json"
+
+// Hub 核心结构体
 type Hub struct {
-	// Registered clients.
+	// 注册客户端
 	clients map[*Client]bool
 
-	// Inbound messages from the clients.
-	broadcast chan []byte
+	// 消息通道
+	broadcast chan Broad
 
-	// Register requests from the clients.
 	register chan *Client
 
-	// Unregister requests from clients.
+	// 卸载客户端
 	unregister chan *Client
 
 	// Uid from clients.
-	uuids map[string]string
+	userINFO map[string]*UserInfo
 }
 
 func newHub() *Hub {
 	return &Hub{
-		broadcast:  make(chan []byte),
+		broadcast:  make(chan Broad),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		clients:    make(map[*Client]bool),
-		uuids:      make(map[string]string),
+		userINFO:   make(map[string]*UserInfo),
 	}
 }
 
@@ -34,21 +34,47 @@ func (h *Hub) run() {
 		select {
 		case client := <-h.register:
 			h.clients[client] = true
-			//当有人连接，把新链接的UUID发送给前台 暂时把它当消息写到通道就行，然后让前台去解析
-
 		case client := <-h.unregister:
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
-				delete(h.uuids, client.uUID)
+				delete(h.userINFO, client.uuid)
 				close(client.send)
 			}
-			//当有人退出，把退出的相关UUID发送给前台 暂时把它当消息写到通道就行，然后让前台去解析
-
-		case message := <-h.broadcast:
-			//log.Println("当前连接：", string([]byte(message)))
-			for client := range h.clients {
+			//更新客户端列表
+			var msg Msg
+			var users = make(map[string]string)
+			for _, vlue := range h.userINFO {
+				users[vlue.UUID] = vlue.NickName
+			}
+			msg.User = users
+			msg.Code = 200
+			msg.Rtype = 2
+			msgJSON, err := json.Marshal(msg)
+			if err == nil {
+				for client := range h.clients {
+					select {
+					case client.send <- msgJSON:
+					default:
+						close(client.send)
+						delete(h.clients, client)
+					}
+				}
+			}
+		case broad := <-h.broadcast:
+			if broad.Rtype == 1 {
+				for client := range h.clients {
+					select {
+					case client.send <- broad.Content:
+					default:
+						close(client.send)
+						delete(h.clients, client)
+					}
+				}
+			}
+			if broad.Rtype == 2 {
+				client := broad.Client
 				select {
-				case client.send <- message:
+				case client.send <- broad.Content:
 				default:
 					close(client.send)
 					delete(h.clients, client)

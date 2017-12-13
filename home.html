@@ -2,16 +2,41 @@
 <html lang="en">
 <head>
 <title>Chat Example</title>
+<script src="http://libs.baidu.com/jquery/2.0.0/jquery.min.js"></script>
 <script type="text/javascript">
+var msgFrom;
+var msgTo = "ALL";
+var nickName ="";
+var users = [];
 window.onload = function () {
     var conn;
+    var send = [];
     var msg = document.getElementById("msg");
     var log = document.getElementById("log");
+    var user = document.getElementById("user");
+    var ulist = document.getElementById("ulist");
+    var toText = document.getElementById("toText");
+
+    yourName = prompt("请输入你的名字:","");
+    if (yourName != null&&yourName != ""){
+        nickName =yourName;
+    }else{
+        alert("请刷新重新输入名字");
+        return;
+    }
+
     function appendLog(item) {
         var doScroll = log.scrollTop > log.scrollHeight - log.clientHeight - 1;
         log.appendChild(item);
         if (doScroll) {
             log.scrollTop = log.scrollHeight - log.clientHeight;
+        }
+    }
+    function appendUser(item) {
+        var doScroll = user.scrollTop > user.scrollHeight - user.clientHeight - 1;
+        ulist.appendChild(item);
+        if (doScroll) {
+            user.scrollTop = user.scrollHeight - user.clientHeight;
         }
     }
     document.getElementById("form").onsubmit = function () {
@@ -21,23 +46,71 @@ window.onload = function () {
         if (!msg.value) {
             return false;
         }
-        conn.send(msg.value);
+        //拼接字符串
+        send = {};
+        send.MsgFrom = msgFrom;
+        send.MsgTo = msgTo;
+        send.FromNick = nickName;
+        send.Content = msg.value;
+        sendJSON = JSON.stringify(send);
+        conn.send(sendJSON);
         msg.value = "";
+
+        if(msgTo!="ALL"){
+            var item = document.createElement("div");
+            item.innerText = "你说: "+ send.Content;
+            appendLog(item);
+        }
         return false;
     };
     if (window["WebSocket"]) {
-        conn = new WebSocket("ws://" + document.location.host + "/ws");
+        conn = new WebSocket("ws://" + document.location.host + "/ws?nick="+nickName);
         conn.onclose = function (evt) {
             var item = document.createElement("div");
             item.innerHTML = "<b>Connection closed.</b>";
             appendLog(item);
         };
         conn.onmessage = function (evt) {
-            var messages = evt.data.split('\n');
-            for (var i = 0; i < messages.length; i++) {
-                var item = document.createElement("div");
-                item.innerText = messages[i];
-                appendLog(item);
+            var messages = evt.data;
+            msgJSON = JSON.parse(messages);
+            if(msgJSON.Code==200){
+                if(msgJSON.Rtype==2){
+                    //给当前用户赋值UUID
+                    if(!msgFrom){
+                        msgFrom = msgJSON.NowUID;
+                    }
+                    //加载用户列表
+                    ulist.innerHTML ="";
+                    users = [];
+                    $.each(msgJSON.User,function(e,t){
+                        var item = document.createElement("li");
+                        item.innerText = t;
+                        $(item).attr("uid",e);
+                        usersJSON = {};
+                        usersJSON.uid = e;
+                        usersJSON.nick = t;
+                        users.push(usersJSON);
+                        item.addEventListener("click",function(){
+                            var $wellToUid = $(this).attr("uid");
+                            if($wellToUid==msgFrom){
+                                alert('不能给自己发送消息');
+                            }
+                            msgTo = $wellToUid;
+                            toText.innerText = this.innerText;
+                        })
+                        appendUser(item);
+                    })
+                }
+                if(msgJSON.Rtype==1){
+                    var item = document.createElement("div");
+                    var contentJSON = JSON.parse(msgJSON.Content);
+                    if(contentJSON.MsgFrom==msgFrom){
+                        item.innerText = "我说: "+contentJSON.Content;
+                    }else{
+                        item.innerText = contentJSON.FromNick+"对你说: "+contentJSON.Content;
+                    }
+                    appendLog(item);
+                }
             }
         };
     } else {
@@ -46,6 +119,19 @@ window.onload = function () {
         appendLog(item);
     }
 };
+</script>
+<script type="text/javascript">
+    function getJsonObjLength(jsonObj) {
+        var Length = 0;
+        for (var item in jsonObj) {
+            Length++;
+        }
+        return Length;
+    }
+    function toAll(){
+        msgTo = "ALL";
+        toText.innerText="ALL";
+    }
 </script>
 <style type="text/css">
 html {
@@ -61,11 +147,19 @@ body {
 }
 #log {
     background: white;
-    margin: 0;
     padding: 0.5em 0.5em 0.5em 0.5em;
     position: absolute;
     top: 0.5em;
     left: 0.5em;
+    right: 20em;
+    bottom: 3em;
+    overflow: auto;
+}
+#user {
+    background: white;
+    padding: 0.5em 0.5em 0.5em 0.5em;
+    position: absolute;
+    top: 0.5em;
     right: 0.5em;
     bottom: 3em;
     overflow: auto;
@@ -79,13 +173,38 @@ body {
     width: 100%;
     overflow: hidden;
 }
+#ulist li{
+    line-height: 20px;
+    cursor:pointer;
+    margin-top: 5px;
+}
+#ulist2 li{
+    cursor:pointer;
+}
+#ulist2 li:hover{
+    background-color: rgb(169, 180, 71);
+}
+#ulist li:hover{
+    background-color: rgb(169, 180, 71);
+}
+
 </style>
 </head>
 <body>
 <div id="log"></div>
+<div id="user">
+    <p>用户列表</p>
+    <ul id="ulist2">
+        <li onclick="toAll()">全部用户</li>
+    </ul>
+    <ul id="ulist">
+    </ul>
+</div>
 <form id="form">
-    <input type="submit" value="Send" />
+    <input type="submit" value="发送" />
     <input type="text" id="msg" size="64"/>
+    <span>发送对象：</span>
+    <span id="toText"></span>
 </form>
 </body>
 </html>

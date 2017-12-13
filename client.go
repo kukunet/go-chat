@@ -12,16 +12,15 @@ import (
 )
 
 const (
-	// Time allowed to write a message to the peer.
-	writeWait = 3 * time.Second
+	// 写消息允许的等待时间
+	writeWait = 10 * time.Second
 
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 3 * time.Second
+	// 心跳允许的等待时间
+	pongWait = 60 * time.Second
 
-	// Send pings to peer with this period. Must be less than pongWait.
 	pingPeriod = (pongWait * 9) / 10
 
-	// Maximum message size allowed from peer.
+	// 发送消息最大的字节数
 	maxMessageSize = 512
 )
 
@@ -35,7 +34,7 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-// Client is a middleman between the websocket connection and the hub.
+// 客户端
 type Client struct {
 	hub *Hub
 
@@ -46,7 +45,24 @@ type Client struct {
 	send chan []byte
 
 	// uuid
-	uUID string
+	uuid string
+
+	// nickname
+	nickName string
+}
+
+// UserInfo 用户信息
+type UserInfo struct {
+	UUID     string
+	NickName string
+	Client   *Client
+}
+
+// 待发送消息
+type Broad struct {
+	Content []byte
+	Rtype   int64
+	Client  *Client
 }
 
 // Msg 消息体
@@ -54,15 +70,21 @@ type Msg struct {
 	Code    int
 	Rtype   int
 	From    string
+	To      string
 	Content string
-	Uids    []string
+	User    map[string]string
+	NowUID  string
 }
 
-// readPump pumps messages from the websocket connection to the hub.
-//
-// The application runs readPump in a per-connection goroutine. The application
-// ensures that there is at most one reader on a connection by executing all
-// reads from this goroutine.
+// 读取消息体
+type ReadMsg struct {
+	Content  string
+	FromNick string
+	MsgFrom  string
+	MsgTo    string
+}
+
+// 读取消息
 func (c *Client) readPump() {
 	defer func() {
 		c.hub.unregister <- c
@@ -82,21 +104,34 @@ func (c *Client) readPump() {
 		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
 		//写入消息
 		var msg Msg
+		var readMsg ReadMsg
 		msg.Code = 200
 		msg.Rtype = 1
+		msg.From = c.uuid
 		msg.Content = string(message)
+		json.Unmarshal([]byte(msg.Content), &readMsg)
+		msg.To = readMsg.MsgTo
 		msgJSON, err := json.Marshal(msg)
+		var broad Broad
+		broad.Content = msgJSON
+		if readMsg.MsgTo == "ALL" {
+			broad.Rtype = 1
+		} else {
+			broad.Rtype = 2
+			if _, ok := c.hub.userINFO[msg.To]; ok {
+				broad.Client = c.hub.userINFO[msg.To].Client
+			} else {
+				//
+				continue
+			}
+		}
 		if err == nil {
-			c.hub.broadcast <- msgJSON
+			c.hub.broadcast <- broad
 		}
 	}
 }
 
-// writePump pumps messages from the hub to the websocket connection.
-//
-// A goroutine running writePump is started for each connection. The
-// application ensures that there is at most one writer to a connection by
-// executing all writes from this goroutine.
+// 写消息
 func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
@@ -139,7 +174,7 @@ func (c *Client) writePump() {
 	}
 }
 
-// serveWs handles websocket requests from the peer.
+// websocket服务架设
 func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -149,25 +184,35 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256)}
 	client.hub.register <- client
 
+	//获取昵称
+	nickName := r.FormValue("nick")
+	client.nickName = nickName
+
 	//分配UUID
 	uid := uuid.NewV4().String()
-	client.uUID = uid
-	hub.uuids[client.uUID] = uid
+	client.uuid = uid
+
+	//构建用户实体
+	userInfo := &UserInfo{UUID: uid, NickName: nickName, Client: client}
+	hub.userINFO[uid] = userInfo
 
 	//实验阶段每次有人进入则把所有用户UUID发送到客户端
 	var msg Msg
-	for num := range hub.uuids {
-		msg.Uids = append(msg.Uids, num)
+	var users = make(map[string]string)
+	for _, vlue := range hub.userINFO {
+		users[vlue.UUID] = vlue.NickName
 	}
+	msg.User = users
 	msg.Code = 200
 	msg.Rtype = 2
+	msg.NowUID = uid
 	msgJSON, err := json.Marshal(msg)
+	var broad Broad
+	broad.Content = msgJSON
+	broad.Rtype = 1
 	if err == nil {
-		client.hub.broadcast <- msgJSON
+		client.hub.broadcast <- broad
 	}
-
-	// Allow collection of memory referenced by the caller by doing all work in
-	// new goroutines.
 	go client.writePump()
 	go client.readPump()
 }
