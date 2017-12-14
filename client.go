@@ -111,6 +111,13 @@ func (c *Client) readPump() {
 		msg.Content = string(message)
 		json.Unmarshal([]byte(msg.Content), &readMsg)
 		msg.To = readMsg.MsgTo
+
+		// 机器人的额外处理
+		if readMsg.MsgTo == "jiqirenxixi" {
+			robotWord := GetWord(readMsg.Content)
+			msg.Content = "{\"Content\":\"" + robotWord + "\",\"FromNick\":\"机器人席席\"}"
+		}
+
 		msgJSON, err := json.Marshal(msg)
 		var broad Broad
 		broad.Content = msgJSON
@@ -121,10 +128,17 @@ func (c *Client) readPump() {
 			if _, ok := c.hub.userINFO[msg.To]; ok {
 				broad.Client = c.hub.userINFO[msg.To].Client
 			} else {
-				//
-				continue
+				// 如果是机器人
+				if readMsg.MsgTo == "jiqirenxixi" {
+					if _, ok := c.hub.userINFO[msg.From]; ok {
+						broad.Client = c.hub.userINFO[msg.From].Client
+					} else {
+						continue
+					}
+				}
 			}
 		}
+
 		if err == nil {
 			c.hub.broadcast <- broad
 		}
